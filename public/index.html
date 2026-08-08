@@ -397,6 +397,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--gold)}
     <div class="timer-pill" id="timer-pill">--:--</div>
     <div class="phase-pill" id="dm-pill" style="display:none">AI主持：脚本</div>
     <div class="spacer"></div>
+    <button class="icon-btn" id="btn-next" title="主持人推进流程：进入下一阶段" style="border-color:var(--gold2);color:var(--gold)">⏭ 下一阶段</button>
     <button class="icon-btn" id="btn-share" title="分享公网链接">🔗 分享</button>
     <button class="icon-btn" id="btn-voice" title="按住说话，松开静音">🎙 按住说话</button>
     <button class="icon-btn" id="btn-tts">🔊 旁白</button>
@@ -3534,32 +3535,32 @@ function nudgeOnce(key, msg){
 
 const PHASES = {
   lobby:{name:'等待开局', timer:0},
-  intro:{name:'序章 · 老四与纸船', timer:12},
-  act1_read:{name:'第一幕 · 团圆夜（阅读）', timer:6},
-  act1_theater:{name:'第一幕 · 小剧场', timer:8},
-  act1_spy:{name:'第一幕 · 谁是卧底', timer:22},
-  act1_reveal:{name:'第一幕 · 血汤圆与报纸', timer:9},
-  act2_read:{name:'第二幕 · 猜疑夜（阅读）', timer:6},
-  act2_group:{name:'第二幕 · 群聊消息一', timer:10},
-  act2_clues:{name:'第二幕 · 线索与搜证', timer:22},
-  act2_vote:{name:'第二幕 · 匿名投票（凶手）', timer:7},
-  act3_group:{name:'第三幕 · 死亡群聊', timer:8},
-  act3_death:{name:'第三幕 · 感知死亡', timer:8},
-  act3_read:{name:'第三幕 · 杀戮夜（阅读）', timer:9},
-  act3_clues:{name:'第三幕 · 三对互杀', timer:15},
-  act3_private:{name:'第三幕 · 私聊与记事本', timer:20},
-  act4_read:{name:'第四幕 · 背叛夜（阅读）', timer:9},
-  act4_group:{name:'第四幕 · 群聊私聊记事本', timer:20},
-  act4_truth:{name:'第四幕 · 真相揭示', timer:14},
-  act4_b:{name:'第四幕 · B本前尘与忏悔', timer:22},
-  act4_vote:{name:'第四幕 · 匿名投票（该死之人）', timer:7},
-  act4_wishes:{name:'第四幕 · 纸船愿望（前半）', timer:10},
-  act4_curse:{name:'第四幕 · 蠢货，杀的就是你', timer:9},
-  act4_c:{name:'第四幕 · C本终幕', timer:13},
-  act4_wishes2:{name:'第四幕 · 纸船愿望（后半）', timer:12},
-  act4_diary:{name:'第四幕 · 日记残页', timer:8},
-  act4_perform:{name:'第四幕 · 方樱演绎', timer:11},
-  ending:{name:'结局 · 墓志铭', timer:12},
+  intro:{name:'序章 · 老四与纸船', timer:10},
+  act1_read:{name:'第一幕 · 团圆夜（阅读）', timer:5},
+  act1_theater:{name:'第一幕 · 小剧场', timer:6},
+  act1_spy:{name:'第一幕 · 谁是卧底', timer:18},
+  act1_reveal:{name:'第一幕 · 血汤圆与报纸', timer:7},
+  act2_read:{name:'第二幕 · 猜疑夜（阅读）', timer:5},
+  act2_group:{name:'第二幕 · 群聊消息一', timer:8},
+  act2_clues:{name:'第二幕 · 线索与搜证', timer:15},
+  act2_vote:{name:'第二幕 · 匿名投票（凶手）', timer:6},
+  act3_group:{name:'第三幕 · 死亡群聊', timer:7},
+  act3_death:{name:'第三幕 · 感知死亡', timer:6},
+  act3_read:{name:'第三幕 · 杀戮夜（阅读）', timer:7},
+  act3_clues:{name:'第三幕 · 三对互杀', timer:12},
+  act3_private:{name:'第三幕 · 私聊与记事本', timer:15},
+  act4_read:{name:'第四幕 · 背叛夜（阅读）', timer:7},
+  act4_group:{name:'第四幕 · 群聊私聊记事本', timer:15},
+  act4_truth:{name:'第四幕 · 真相揭示', timer:12},
+  act4_b:{name:'第四幕 · B本前尘与忏悔', timer:15},
+  act4_vote:{name:'第四幕 · 匿名投票（该死之人）', timer:6},
+  act4_wishes:{name:'第四幕 · 纸船愿望（前半）', timer:8},
+  act4_curse:{name:'第四幕 · 蠢货，杀的就是你', timer:8},
+  act4_c:{name:'第四幕 · C本终幕', timer:10},
+  act4_wishes2:{name:'第四幕 · 纸船愿望（后半）', timer:10},
+  act4_diary:{name:'第四幕 · 日记残页', timer:7},
+  act4_perform:{name:'第四幕 · 方樱演绎', timer:9},
+  ending:{name:'结局 · 墓志铭', timer:10},
   recap:{name:'复盘 · 真相还原', timer:0}
 };
 
@@ -3574,8 +3575,8 @@ const PHASE_BGM = {
 };
 
 /* 阅读阶段（公聊禁用） */
-const READING_PHASES = new Set(['intro','act1_read','act2_read','act3_read','act4_read','act4_c']);
-const CHAT_PHASES = new Set(['act1_theater','act1_spy','act1_reveal','act2_group','act2_clues','act2_vote','act3_group','act3_death','act3_clues','act3_private','act4_group','act4_truth','act4_b','act4_vote','act4_wishes','act4_curse','act4_wishes2','act4_diary','act4_perform','ending','recap']);
+const READING_PHASES = new Set(['intro','act1_read','act1_theater','act2_read','act3_read','act4_read','act4_c']);
+const CHAT_PHASES = new Set(['act1_spy','act1_reveal','act2_group','act2_clues','act2_vote','act3_group','act3_death','act3_clues','act3_private','act4_group','act4_truth','act4_b','act4_vote','act4_wishes','act4_curse','act4_wishes2','act4_diary','act4_perform','ending','recap']);
 const DM_PHASES = new Set(['act3_private','act4_group','act4_truth','act4_b','act4_vote','act4_wishes','act4_curse','act4_wishes2','act4_diary','act4_perform','ending','recap']);
 
 /* ---------- 房间状态初始化 ---------- */
@@ -4215,6 +4216,7 @@ const PHASE_NEXT = {
 
 const READ_SECTION = {
   act1_read:'act1',
+  act1_theater:'theater',
   act2_read:'act2',
   act3_read:'act3',
   act4_read:'act4',
@@ -4978,7 +4980,7 @@ function renderScript(){
   }
   addSec('prelude','序言', full.prelude || WD.SHARED.prelude, null, 1);
   addSec('act1','第一节 · 团圆夜', act1Full, null, 2, 'act1');
-  addSec('theater','小剧场', theaterFull || WD.SHARED.theater, null, 3);
+  addSec('theater','小剧场', theaterFull || WD.SHARED.theater, null, 3, 'theater');
   addSec('act2','第二节 · 猜疑夜', full.act2 || (WD.SHARED.act2 + '\n\n' + (WD.ACT.act2Task[p.role]||'')), null, 6, 'act2');
   addSec('act3','第三节 · 杀戮夜', full.act3 || WD.ACT.act3Death[p.role], null, 12, 'act3');
   addSec('act4','第四节 · 背叛夜', full.act4 || WD.ACT.act4Recall[p.role], null, 15, 'act4');
@@ -6174,6 +6176,7 @@ function showPerformPrompt(){
     if(ok) ok.addEventListener('click', ()=>{
       closeModal();
       hostSay('全场寂静。方樱的身影，消失在黑暗里。', {tts:true});
+      setTimeout(()=>{ if(S && S.phase==='act4_perform') requestPhase('ending'); }, 2000);
     });
   }else{
     openModal('方樱演绎', '<p>灯灭了。</p><p class="dim">方樱，进场。请各位保持安静，静静聆听她的演绎。</p>', [{label:'静静聆听', cls:'primary'}]);
@@ -6188,6 +6191,16 @@ function renderShare(){
       S.flags['shareDone'] = 1;
       scheduleSnapshot();
       hostSay('🙏 现在，请所有人依次对方樱说出你们的道歉与忏悔。这一夜的忏悔越诚恳，下一幕的反转越戏剧。', {tts:true});
+      if(!S.flags['shareAdvanceScheduled']){
+        S.flags['shareAdvanceScheduled'] = 1;
+        scheduleSnapshot();
+        setTimeout(()=>{
+          if(S && S.phase==='act4_b'){
+            hostSay('⏭ 忏悔时间到。接下来，请写出你们心中最该死的那个人。', {tts:true});
+            requestPhase('act4_vote');
+          }
+        }, 150000);
+      }
     }
     return;
   }
@@ -6731,6 +6744,13 @@ function bindGameHeader(){
   });
   $('btn-tts').addEventListener('click', ()=>TTS.toggle());
   $('btn-share').addEventListener('click', ()=>{ AudioSys.sfx('click'); Share.open(); });
+  $('btn-next').addEventListener('click', ()=>{
+    const next = PHASE_NEXT[S.phase];
+    if(!next){ toast('当前阶段已是最后一步'); return; }
+    AudioSys.sfx('paper');
+    hostSay('⏭ 主持人推进流程：进入下一阶段「' + PHASES[next].name + '」。', {tts:true});
+    requestPhase(next);
+  });
   const shareFloat = $('btn-share-float');
   if(shareFloat) shareFloat.addEventListener('click', ()=>{ AudioSys.sfx('click'); Share.open(); });
   // 按住说话（桌面：鼠标按住；移动端：长按）
