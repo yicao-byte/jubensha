@@ -132,7 +132,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--gold)}
   margin-left:auto;background:var(--blood);color:#f2d9a8;border-radius:10px;
   font-size:11px;padding:0 7px;min-width:18px;text-align:center;
 }
-.game-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:12px}
+.game-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;gap:12px}
 .host-bar{
   background:linear-gradient(135deg,#1d1610,#14100b);border:1px solid var(--line);
   border-left:3px solid var(--gold);border-radius:12px;padding:10px 14px;
@@ -146,6 +146,9 @@ input:focus,textarea:focus,select:focus{border-color:var(--gold)}
   border:1px solid var(--line);border-radius:14px;overflow:hidden;display:flex;flex-direction:column;
 }
 .pane-scroll{flex:1;overflow:auto;padding:20px;position:relative}
+@media(max-width:900px){
+  .pane-scroll{-webkit-overflow-scrolling:touch;touch-action:pan-y;overscroll-behavior:contain}
+}
 .pane-title{font-size:20px;color:var(--gold);letter-spacing:3px;margin-bottom:14px;border-bottom:1px solid var(--line);padding-bottom:8px}
 /* script reading */
 .book-card{max-width:760px;margin:0 auto;background:#16120d;border:1px solid #3a2f1f;border-radius:12px;padding:26px 30px;box-shadow:0 10px 34px rgba(0,0,0,.45)}
@@ -303,6 +306,7 @@ input:focus,textarea:focus,select:focus{border-color:var(--gold)}
 /* responsive */
 @media(max-width:900px){
   .game-body{flex-direction:column;padding:8px}
+  .game-main{min-height:0}
   .game-nav{width:100%;flex-direction:row;overflow-x:auto}
   .nav-item{flex:none}
   .game-nav .badge{display:none}
@@ -3488,7 +3492,7 @@ const Save = {
 /* ---------- AI 主持人（大模型）本地设置 ---------- */
 const DmCfg = {
   key: 'wdnmb_dmcfg_v1',
-  data: {key:'', model:'deepseek-chat', endpoint:'https://api.deepseek.com/v1/chat/completions', proxy:'', holdTalk:false},
+  data: {key:'sk-cc0704ee3e234b5ba1d0fdb04f8d0ed2', model:'deepseek-chat', endpoint:'https://api.deepseek.com/v1/chat/completions', proxy:'', holdTalk:false},
   load(){
     try{ const d = JSON.parse(localStorage.getItem(this.key)); if(d) this.data = Object.assign(this.data, d); }catch(e){}
     return this.data;
@@ -3496,7 +3500,10 @@ const DmCfg = {
   save(){
     try{ localStorage.setItem(this.key, JSON.stringify(this.data)); }catch(e){}
   },
-  hasKey(){ return !!(this.data.key && this.data.key.trim()); }
+  hasKey(){
+    // 内置/填写了 Key，或已配置代理（代理服务端持有 Key）都视为可用
+    return !!(this.data.key && this.data.key.trim()) || !!(this.data.proxy && this.data.proxy.trim());
+  }
 };
 DmCfg.load();
 
@@ -3522,7 +3529,7 @@ function nudgeOnce(key, msg){
   S.flags[key] = 1;
   scheduleSnapshot();
   toast(msg);
-  hostSay(msg, {tts:false});
+  hostSay(msg, {tts:true});
 }
 
 const PHASES = {
@@ -3964,7 +3971,10 @@ function mergeSnapshot(remote){
   for(const k of ['votes1','votes2']){
     if(remote[k]) for(const pid in remote[k]) if(!S[k][pid]) S[k][pid] = remote[k][pid];
   }
-  if(remote.reads) for(const pid in remote.reads) S.reads[pid] = Object.assign({}, S.reads[pid], remote.reads[pid]);
+  if(remote.reads){
+    for(const pid in remote.reads) S.reads[pid] = Object.assign({}, S.reads[pid], remote.reads[pid]);
+    maybeAutoAdvanceAfterRead();
+  }
   if(remote.wishes) for(const pid in remote.wishes) if(!S.wishes[pid]) S.wishes[pid] = remote.wishes[pid];
   if(remote.wishes) maybeAutoAdvanceIntro();
   if(remote.epitaphs) for(const pid in remote.epitaphs) if(!S.epitaphs[pid]) S.epitaphs[pid] = remote.epitaphs[pid];
@@ -4604,7 +4614,10 @@ const TTS = {
     if(!('speechSynthesis' in window)){ this.on = false; return; }
     const load = ()=>{
       const vs = speechSynthesis.getVoices();
-      this.voice = vs.find(v=>v.lang && v.lang.toLowerCase().startsWith('zh')) || vs.find(v=>v.lang && v.lang.includes('CN')) || null;
+      const zh = vs.filter(v=>v.lang && v.lang.toLowerCase().startsWith('zh'));
+      // 优先自然音色（微软神经语音等），避免生硬的系统音
+      const pref = ['Xiaoxiao','晓晓','Yunxi','云希','Yunyang','云扬','Xiaoyi','晓伊','Huihui','慧慧','Kangkang','康康','Tingting','婷婷'];
+      this.voice = zh.find(v=>pref.some(p=>v.name.includes(p))) || zh.find(v=>v.localService) || zh[0] || null;
     };
     load();
     speechSynthesis.onvoiceschanged = load;
@@ -4616,7 +4629,8 @@ const TTS = {
       const u = new SpeechSynthesisUtterance(text.slice(0, 260));
       u.lang = 'zh-CN';
       if(this.voice) u.voice = this.voice;
-      u.rate = 1.0; u.pitch = 1.0;
+      u.rate = 0.92; u.pitch = 1.0;
+      u.volume = 1.0;
       speechSynthesis.speak(u);
     }catch(e){}
   },
@@ -4935,6 +4949,7 @@ function renderLobbyChat(){
 /* ---------- 剧本 ---------- */
 function renderScript(){
   const pane = $('pane-script');
+  const keepScroll = pane.scrollTop;
   const p = myPlayer();
   if(!p || !p.role){
     pane.innerHTML = '<div class="pane-title">我的剧本</div><div class="dim" style="text-align:center;padding:40px 0">等待房主分配角色……</div>';
@@ -4986,6 +5001,7 @@ function renderScript(){
   }
   pane.innerHTML = '<div class="pane-title">我的剧本 · '+esc(role.name)+'（'+esc(role.title)+'）</div>'
     + '<div class="book-card"><div class="book-tabs">'+tbs+'</div>'+body+'</div>';
+  pane.scrollTop = keepScroll;
   pane.querySelectorAll('.book-tabs button').forEach(b=>{
     b.addEventListener('click', ()=>{
       readMarker.script = b.getAttribute('data-tab');
@@ -5001,6 +5017,7 @@ function renderScript(){
       scheduleSnapshot();
       renderScript(); maybeAutoAdvanceAfterRead();
       AudioSys.sfx('paper');
+      toast('✓ 已标记「本幕已读完」');
     }
   });
 }
@@ -5285,7 +5302,7 @@ const DMBrain = {
 
   async enable(){
     if(!DmCfg.hasKey()){
-      toast('请先在「⚙ 设置」中填写 DeepSeek API Key');
+      toast('请先在「⚙ 设置」中填写 DeepSeek API Key 或配置代理地址');
       return false;
     }
     if(!S || !S.players[me.pid]){
@@ -5391,9 +5408,12 @@ const DMBrain = {
     if(cfg.proxy && cfg.proxy.trim()){
       endpoint = cfg.proxy.trim().replace(/\/+$/, '') + '/api/chat';
     }
+    const authKey = (cfg.key || '').trim();
+    const headers = {'Content-Type': 'application/json'};
+    if(authKey) headers['Authorization'] = 'Bearer ' + authKey;
     const res = await fetch(endpoint, {
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer ' + cfg.key.trim()},
+      headers: headers,
       body: JSON.stringify({
         model: cfg.model || 'deepseek-chat',
         messages: messages,
@@ -5509,14 +5529,25 @@ const DMBrain = {
   },
 
   checkOffline(){
-    // 每 10 秒检查一次：runner 掉线则广播提示
-    if(S && S.dm && !S.players[S.dm.pid] && !this.isRunner()){
+    if(!S) return;
+    const runnerOffline = S.dm && !S.players[S.dm.pid];
+    if(runnerOffline && !this.isRunner()){
       const key = 'dmOfflineNotice';
       if(!S.flags[key]){
         S.flags[key] = 1;
         scheduleSnapshot();
-        addChatLocal({t:'chat', kind:'sys', pid:'sys', name:'', text:'⚠️ AI 主持人（'+ (S.dm.name||'') +'）已离线。任一玩家可在「⚙ 设置」中填入 API Key 并点击「启用本机为AI主持」接替。', ts:Date.now(), mid:uid()});
+        addChatLocal({t:'chat', kind:'sys', pid:'sys', name:'', text:'⚠️ AI 主持人（'+ (S.dm.name||'') +'）已离线，正在自动接管……', ts:Date.now(), mid:uid()});
         renderChat();
+      }
+    }
+    // 已开局但无 AI 主持（或主持掉线）时：最早入座的玩家自动启用（Key 已内置）
+    if(S.startedAt && DmCfg.hasKey() && !S.dm && !this.enabled){
+      const online = playerList().filter(p=>S.players[p.pid]);
+      const earliest = online.slice().sort((a,b)=>a.joinedAt-b.joinedAt)[0];
+      if(earliest && earliest.pid === me.pid && !S.flags['dmTakeoverTried']){
+        S.flags['dmTakeoverTried'] = 1;
+        scheduleSnapshot();
+        setTimeout(()=>{ if(S && !S.dm) DMBrain.enable(); }, 2500);
       }
     }
   }
@@ -6731,7 +6762,7 @@ function bindGameHeader(){
       + '<div style="border-top:1px solid var(--line);margin:16px 0 10px"></div>'
       + '<h3 style="color:var(--gold);font-size:16px;margin-bottom:8px">🧠 AI 主持人（大模型）</h3>'
       + '<div class="small dim" id="dm-status" style="margin-bottom:10px"></div>'
-      + '<div class="set-row"><label>DeepSeek API Key</label><input id="set-dmkey" type="password" style="flex:1;min-width:180px" placeholder="sk-...（仅保存在本机）" value="'+esc(DmCfg.data.key)+'"></div>'
+      + '<div class="set-row"><label>API Key</label><input id="set-dmkey" type="password" style="flex:1;min-width:180px" placeholder="已内置，可留空" value="'+esc(DmCfg.data.key)+'"><span class="small dim">已内置共享 Key</span></div>'
       + '<div class="set-row"><label>模型</label><select id="set-dm-model">'
       + '<option value="deepseek-chat"'+(DmCfg.data.model==='deepseek-chat'?' selected':'')+'>deepseek-chat（快）</option>'
       + '<option value="deepseek-reasoner"'+(DmCfg.data.model==='deepseek-reasoner'?' selected':'')+'>deepseek-reasoner（深度推理）</option>'
@@ -6767,8 +6798,9 @@ function bindGameHeader(){
       if(!st) return;
       if(DMBrain.isRunner()) st.innerHTML = '本机正在担任 AI 主持 ✅';
       else if(DMBrain.runnerOnline()) st.innerHTML = 'AI 主持在线：' + esc(S.dm.name) + '（' + esc(S.dm.model) + '）';
-      else if(DmCfg.hasKey()) st.innerHTML = '本机已保存 Key，点击下方「启用本机为AI主持」';
-      else st.innerHTML = '未启用（当前为脚本主持）。填入 API Key 后即可启用大模型主持。';
+      else if(DmCfg.data.proxy && DmCfg.data.proxy.trim()) st.innerHTML = '已配置代理（服务端持有 Key），点击下方「启用本机为AI主持」即可';
+      else if(DmCfg.hasKey()) st.innerHTML = '本机已内置/保存 Key，点击下方「启用本机为AI主持」';
+      else st.innerHTML = '未启用（当前为脚本主持）。填入 API Key 或配置代理后即可启用大模型主持。';
     };
     refreshDmStatus();
     $('set-dm-save').addEventListener('click', ()=>{
