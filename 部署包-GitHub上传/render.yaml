@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: wdnb-dm
+    runtime: node
+    plan: free
+    buildCommand: echo "ok"
+    startCommand: node server.js
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false
