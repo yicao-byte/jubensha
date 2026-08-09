@@ -5248,6 +5248,7 @@ function addChatLocal(d){
     renderChat(); renderLobbyChat();
     Steering.check(d);
     DMBrain.onChat(d);
+    BotBrain.onHumanChat(d);
   }
 }
 
@@ -5438,6 +5439,40 @@ const DMBrain = {
     return text;
   },
 
+  /* 通用单轮对话（用于机器人接话等） */
+  async chatOnce(system, user, maxTokens){
+    const cfg = DmCfg.data;
+    let endpoint = (cfg.endpoint || 'https://api.deepseek.com/v1/chat/completions').trim();
+    if(cfg.proxy && cfg.proxy.trim()){
+      endpoint = cfg.proxy.trim().replace(/\/+$/, '') + '/api/chat';
+    }
+    const authKey = (cfg.key || '').trim();
+    const headers = {'Content-Type': 'application/json'};
+    if(authKey) headers['Authorization'] = 'Bearer ' + authKey;
+    const res = await fetch(endpoint, {
+      method:'POST',
+      headers: headers,
+      body: JSON.stringify({
+        model: cfg.model || 'deepseek-chat',
+        messages: [
+          {role:'system', content: system},
+          {role:'user', content: user}
+        ],
+        temperature: 0.95,
+        max_tokens: maxTokens || 220,
+        stream: false
+      }),
+      signal: AbortSignal.timeout(45000)
+    });
+    if(!res.ok){
+      let detail = '';
+      try{ const j = await res.json(); detail = (j.error && j.error.message) || j.message || ''; }catch(e){}
+      throw new Error(res.status + ' ' + detail);
+    }
+    const j = await res.json();
+    return (j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || '';
+  },
+
   post(text){
     text = String(text || '').trim();
     if(!text) return;
@@ -5608,16 +5643,30 @@ const BOT_EPITAPHS = [
   '终于可以慢慢变老',
   '野狗不需要墓碑'
 ];
+const BOT_PERSONA = {
+  bageng:'你扮演爷爷方八更：一个愧疚、沉默寡言、眼睛不好的老人。你总想着补偿家人，说话慢、带点沧桑。',
+  ping:'你扮演爸爸方平：隐忍、顾家、肺部有病却瞒着家人。你说话温和，总想保护家人。',
+  cui:'你扮演妈妈崔敏：表面温柔贤惠、内心精明清醒。你说话得体，但偶尔话里有话。',
+  ming:'你扮演哥哥方明：安静、有点阴郁、非常在意这个家。你说话简短，偶尔让人毛骨悚然。',
+  man:'你扮演姐姐方蔓：冷淡、封闭、心里充满怨恨但表面平静。你很少说话，一开口就很犀利。',
+  ying:'你扮演妹妹方樱：天真、善良、全家最受宠。你说话活泼、黏人、充满好奇心。'
+};
 
 const BotBrain = {
   timers: [],
   active: false,
+  lastReply: 0,
+  lastBot: '',
+  _chatTimer: null,
   schedule(fn, ms){
     const t = setTimeout(()=>{ try{ fn(); }catch(e){} }, ms);
     this.timers.push(t);
     return t;
   },
-  clear(){ this.timers.forEach(clearTimeout); this.timers = []; },
+  clear(){
+    this.timers.forEach(clearTimeout); this.timers = [];
+    clearTimeout(this._chatTimer); this._chatTimer = null;
+  },
   bots(){ return playerList().filter(p=>p.bot); },
   onPhase(ph){
     this.clear();
@@ -5686,6 +5735,53 @@ const BotBrain = {
       });
       return;
     }
+    // 第二幕·线索分享：轮到谁谁就自动分享自己视角的线索
+    if(ph === 'act2_clues'){
+      const order = ['bageng','ping','cui','man','ming','ying'];
+      order.forEach((roleId, i)=>{
+        const b = bots.find(x=>x.role===roleId);
+        if(!b) return;
+        this.schedule(()=>{
+          if(!S || S.phase!==ph) return;
+          const clue = (WD.CLUES.perRole[roleId]||[])[0];
+          const head = clue ? (clue.name + '：' + clue.text.replace(/\s+/g,'').slice(0, 70) + '……') : '';
+          addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:'我看到的线索是——' + head, ts:Date.now(), mid:uid()});
+        }, 6000 + i*5000);
+      });
+      return;
+    }
+    // 第三幕·感知死亡：机器人分享自己感受到的死前画面
+    if(ph === 'act3_death'){
+      const feel = {
+        bageng:'我……我的眼睛，好疼。',
+        ping:'我的胸口……喘不上气。',
+        cui:'我的手腕……全是血。',
+        ming:'我的心脏……好冷。',
+        man:'我的脸……好烫。',
+        ying:'我的喉咙……'
+      };
+      bots.forEach((b,i)=>{
+        this.schedule(()=>{
+          if(!S || S.phase!==ph) return;
+          addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:feel[b.role] || '我感受到了……', ts:Date.now(), mid:uid()});
+        }, 3000 + i*2500);
+      });
+      return;
+    }
+    // 纸船愿望：机器人按角色读出自己的愿望
+    if(ph === 'act4_wishes' || ph === 'act4_wishes2'){
+      const isFront = ph === 'act4_wishes';
+      bots.forEach((b,i)=>{
+        this.schedule(()=>{
+          if(!S || S.phase!==ph) return;
+          const w = WD.WISHES[b.role];
+          if(!w) return;
+          const text = isFront ? w.front : w.back;
+          addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:'我的愿望是：「' + text + '」', ts:Date.now(), mid:uid()});
+        }, 4000 + i*3500);
+      });
+      return;
+    }
     // B 本分享：机器人自动完成
     if(ph==='act4_b'){
       SHARE_ORDER.forEach((roleId, i)=>{
@@ -5693,11 +5789,31 @@ const BotBrain = {
         if(!b) return;
         this.schedule(()=>{
           if(!S || S.phase!=='act4_b') return;
+          const book = (typeof FULL_SCRIPTS !== 'undefined' && FULL_SCRIPTS[b.role] && FULL_SCRIPTS[b.role].bookB) || '';
+          const head = book ? book.replace(/\s+/g,'').slice(0, 80) + '……' : '';
+          addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:'（我分享我的前尘）' + head, ts:Date.now(), mid:uid()});
           S.flags['share_'+b.pid] = 1;
           scheduleSnapshot();
           renderShare();
-        }, 8000 + i*3000);
+        }, 8000 + i*4500);
       });
+      return;
+    }
+    // 方樱演绎：若方樱是机器人，自动演绎并推进
+    if(ph === 'act4_perform'){
+      const yingBot = bots.find(b=>b.role==='ying');
+      if(yingBot && !S.flags['botPerformDone']){
+        S.flags['botPerformDone'] = 1;
+        scheduleSnapshot();
+        this.schedule(()=>{
+          if(!S || S.phase!=='act4_perform') return;
+          addChatLocal({t:'chat', kind:'ai', pid:yingBot.pid, name:'方樱 · 演绎', role:'ying', text: WD.PERFORM, ts:Date.now(), mid:uid()});
+          hostSay('全场寂静。方樱，进场。', {tts:true});
+          setTimeout(()=>{
+            if(S && S.phase==='act4_perform') requestPhase('ending');
+          }, 20000);
+        }, 5000);
+      }
       return;
     }
     // 结局：机器人写墓志铭 + 方樱机器人选择原谅
@@ -5715,6 +5831,7 @@ const BotBrain = {
           addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:line, ts:Date.now(), mid:uid()});
         }, 5000 + i*3800 + Math.random()*4000);
       });
+      this.scheduleChatter();
     }
   },
   spyTick(){
@@ -5780,6 +5897,71 @@ const BotBrain = {
         tryComputeEnding();
       }, 15000);
     }
+  },
+  /* 机器人接话：真人发言后，点名或随机机器人用大模型回应 */
+  async onHumanChat(d){
+    if(!this.active || !S) return;
+    if(d.kind==='ai' || d.kind==='sys') return;
+    if(d.pid !== me.pid) return;
+    const ph = S.phase;
+    if(!CHAT_PHASES.has(ph) || READING_PHASES.has(ph) || ph==='act1_spy') return;
+    const now = Date.now();
+    if(now - this.lastReply < 8000) return;
+    const bots = this.bots();
+    if(!bots.length) return;
+    let target = null;
+    for(const r in R){
+      if(new RegExp(R[r].name + '|' + R[r].title).test(d.text || '')){
+        target = bots.find(b=>b.role===r);
+        if(target) break;
+      }
+    }
+    if(!target){
+      const others = bots.filter(b=>b.pid!==this.lastBot);
+      target = others[Math.floor(Math.random()*others.length)] || bots[0];
+    }
+    this.lastBot = target.pid;
+    this.lastReply = now;
+    try{
+      const sys = BOT_PERSONA[target.role]
+        + ' 当前阶段：' + (PHASES[ph] ? PHASES[ph].name : '')
+        + '。规则：用第一人称中文自然发言，1~3句话，可以怀疑、提问、开玩笑，不要剧透未解锁内容，不要提及“机器人/AI”。';
+      const reply = await DMBrain.chatOnce(sys, '玩家【' + d.name + '】对大家说：' + d.text + '\n请以你的角色身份回应这句话。', 220);
+      if(reply && this.active){
+        const txt = String(reply).trim().replace(/^["“]+|["”]+$/g, '').slice(0, 300);
+        if(txt){
+          addChatLocal({t:'chat', kind:'pub', pid:target.pid, name:target.name, role:target.role, text:txt, ts:Date.now(), mid:uid()});
+          AudioSys.sfx('paper');
+        }
+      }
+    }catch(e){ /* 静默失败，不打断测试 */ }
+  },
+  /* 讨论阶段：机器人每隔一段时间主动发言（大模型生成） */
+  scheduleChatter(){
+    if(!this.active || !S || this._chatTimer) return;
+    const ph = S.phase;
+    if(!CHAT_PHASES.has(ph) || READING_PHASES.has(ph) || ph==='act1_spy') return;
+    const bots = this.bots();
+    if(!bots.length) return;
+    const loop = async ()=>{
+      this._chatTimer = null;
+      if(!this.active || !S || S.phase!==ph) return;
+      const b = bots[Math.floor(Math.random()*bots.length)];
+      try{
+        const sys = BOT_PERSONA[b.role]
+          + ' 当前阶段：' + (PHASES[ph] ? PHASES[ph].name : '')
+          + '。规则：用第一人称中文说一句符合角色的话（1~2句），围绕当前案件讨论，可质疑可分享猜测，不剧透。';
+        const reply = await DMBrain.chatOnce(sys, '（当前大家正在讨论案情，请你说一句符合角色身份的话）', 150);
+        if(reply && this.active && S.phase===ph){
+          const txt = String(reply).trim().replace(/^["“]+|["”]+$/g, '').slice(0, 200);
+          if(txt) addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:txt, ts:Date.now(), mid:uid()});
+        }
+      }catch(e){}
+      if(this.active && S && S.phase===ph){
+        this._chatTimer = setTimeout(loop, 90000 + Math.random()*60000);
+      }
+    };
+    this._chatTimer = setTimeout(loop, 40000 + Math.random()*30000);
   }
 };
 
