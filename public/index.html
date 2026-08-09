@@ -179,6 +179,11 @@ input:focus,textarea:focus,select:focus{border-color:var(--gold)}
 .clue-card .c-name{font-size:15px;color:#e8d9b8;margin:4px 0;font-weight:bold}
 .clue-card .c-desc{font-size:13px;color:var(--dim);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .clue-card .lock-icon{position:absolute;top:10px;right:12px;color:var(--dim2)}
+.whiteboard{background:#20301c;color:#e8e3c0;border:10px solid #5a4632;border-radius:6px;padding:18px 20px;margin-bottom:16px;box-shadow:inset 0 0 40px rgba(0,0,0,.35);font-family:"Kaiti SC","STKaiti",serif}
+.whiteboard h4{color:#f2ecc8;letter-spacing:2px;margin-bottom:10px;font-size:16px;border-bottom:1px dashed #8a9b6e;padding-bottom:6px}
+.whiteboard .wb-row{display:flex;gap:8px;margin:6px 0;font-size:14px}
+.whiteboard .wb-role{flex:none;width:90px;color:#cfd8ae}
+.whiteboard .wb-val{color:#f0ead0}
 .clue-detail{position:fixed;inset:0;z-index:40;background:rgba(5,4,3,.88);display:flex;align-items:center;justify-content:center;padding:20px}
 .clue-detail .cd-inner{max-width:660px;max-height:86vh;overflow:auto;background:#17120d;border:1px solid var(--gold2);border-radius:14px;padding:26px 30px;box-shadow:0 20px 70px rgba(0,0,0,.8)}
 .clue-detail .cd-inner h3{color:var(--gold);font-size:20px;margin-bottom:12px}
@@ -5155,6 +5160,33 @@ function renderClues(){
   const pane = $('pane-clues');
   const p = myPlayer();
   const cur = rank(S.phase);
+  let board = '';
+  if(cur >= rank('act2_clues')){
+    const rows = [
+      ['爷爷 · 方八更','偷窥狂 / 老色批 / 怕被姐姐反杀 / 恋童'],
+      ['爸爸 · 方平','舔狗崩溃 / 情绪爆发 / 压抑不住身体 / 出轨'],
+      ['妈妈 · 崔敏','控制欲强 / 想要离婚 / 出轨'],
+      ['哥哥 · 方明','认知障碍 / 心理疾病 / 好奇心过重'],
+      ['姐姐 · 方蔓','阴暗 / 暴力 / 变态 / 对爷爷有明确杀意'],
+      ['妹妹 · 方樱','好像知道什么秘密 / 跟踪 / 善于伪装']
+    ];
+    board += '<div class="whiteboard"><h4>黑板 · 可能动机</h4>'
+      + rows.map(r=>'<div class="wb-row"><span class="wb-role">'+esc(r[0])+'</span><span class="wb-val">'+esc(r[1])+'</span></div>').join('')
+      + '</div>';
+  }
+  if(cur >= rank('act4_truth')){
+    const rows = [
+      ['爷爷 · 方八更','眼睛——会突然暂时失明'],
+      ['爸爸 · 方平','肺——咳嗽咯血'],
+      ['妈妈 · 崔敏','低血糖、贫血——体力差'],
+      ['哥哥 · 方明','心脏 / 心理——会突然休克'],
+      ['姐姐 · 方蔓','皮肤被烧毁毁容——黑头巾黑手套'],
+      ['妹妹 · 方樱','耳朵（？）——先从这里开始推理！']
+    ];
+    board += '<div class="whiteboard"><h4>黑板 · 每个人的病</h4>'
+      + rows.map(r=>'<div class="wb-row"><span class="wb-role">'+esc(r[0])+'</span><span class="wb-val">'+esc(r[1])+'</span></div>').join('')
+      + '</div>';
+  }
   const view = [];
   const card = (c, locked, ownerNote)=>{
     const idx = view.length;
@@ -5183,7 +5215,7 @@ function renderClues(){
       if(canSee) rendered.push(card(c, cur < rank(c.phase)));
     });
   }
-  pane.innerHTML = '<div class="pane-title">线索册</div><div class="clue-grid">'+rendered.join('')+'</div>'
+  pane.innerHTML = '<div class="pane-title">线索册</div>' + board + '<div class="clue-grid">'+rendered.join('')+'</div>'
     + '<div class="small dim" style="margin-top:14px">🔒 上锁的线索会在对应阶段自动解锁。个人线索只有你能看到。</div>';
   pane.querySelectorAll('[data-idx]').forEach(el=>{
     const v = view[+el.getAttribute('data-idx')];
@@ -5658,6 +5690,18 @@ const BotBrain = {
   lastReply: 0,
   lastBot: '',
   _chatTimer: null,
+
+  /* 机器人角色上下文：人设 + 当前阶段 + 已解锁线索，用于像真人一样推理 */
+  botContext(roleId, ph){
+    let ctx = BOT_PERSONA[roleId] || '';
+    ctx += ' 当前阶段：' + (PHASES[ph] ? PHASES[ph].name : '');
+    const cur = rank(ph);
+    const pub = WD.CLUES.public.filter(c=>cur >= rank(c.phase)).map(c=>c.name);
+    if(pub.length) ctx += ' 已公开线索：' + pub.join('、');
+    const own = (WD.CLUES.perRole[roleId] || []).filter(c=>cur >= rank(c.phase)).map(c=>c.name);
+    if(own.length) ctx += ' 你自己看到的线索：' + own.join('、');
+    return ctx;
+  },
   schedule(fn, ms){
     const t = setTimeout(()=>{ try{ fn(); }catch(e){} }, ms);
     this.timers.push(t);
@@ -5719,19 +5763,14 @@ const BotBrain = {
       });
       return;
     }
-    // 匿名投票：机器人投票
+    // 匿名投票：机器人用大模型推理后投票（模拟真人判断）
     if(ph==='act2_vote' || ph==='act4_vote'){
       const round = ph==='act2_vote' ? 1 : 2;
       bots.forEach((b,i)=>{
         this.schedule(()=>{
           if(!S || S.phase!==ph) return;
-          const roleIds = Object.keys(R);
-          const target = roleIds[Math.floor(Math.random()*roleIds.length)];
-          if(round===1){ S.votes1[b.pid] = {target, vid:uid()}; }
-          else { S.votes2[b.pid] = {target, vid:uid()}; }
-          scheduleSnapshot();
-          renderVote();
-        }, 4000 + i*2200);
+          this.botVote(b, round);
+        }, 6000 + i*3500);
       });
       return;
     }
@@ -5923,9 +5962,8 @@ const BotBrain = {
     this.lastBot = target.pid;
     this.lastReply = now;
     try{
-      const sys = BOT_PERSONA[target.role]
-        + ' 当前阶段：' + (PHASES[ph] ? PHASES[ph].name : '')
-        + '。规则：用第一人称中文自然发言，1~3句话，可以怀疑、提问、开玩笑，不要剧透未解锁内容，不要提及“机器人/AI”。';
+      const sys = this.botContext(target.role, ph)
+        + ' 规则：像真人玩家一样，结合线索推理并回应。用第一人称中文，1~3句话，可以怀疑、提问、开玩笑，不要剧透未解锁真相，不要提及“机器人/AI”。';
       const reply = await DMBrain.chatOnce(sys, '玩家【' + d.name + '】对大家说：' + d.text + '\n请以你的角色身份回应这句话。', 220);
       if(reply && this.active){
         const txt = String(reply).trim().replace(/^["“]+|["”]+$/g, '').slice(0, 300);
@@ -5948,9 +5986,8 @@ const BotBrain = {
       if(!this.active || !S || S.phase!==ph) return;
       const b = bots[Math.floor(Math.random()*bots.length)];
       try{
-        const sys = BOT_PERSONA[b.role]
-          + ' 当前阶段：' + (PHASES[ph] ? PHASES[ph].name : '')
-          + '。规则：用第一人称中文说一句符合角色的话（1~2句），围绕当前案件讨论，可质疑可分享猜测，不剧透。';
+        const sys = this.botContext(b.role, ph)
+          + ' 规则：像真人玩家一样，围绕当前案件做一句推理或猜测，用第一人称中文说1~2句，不剧透未解锁真相。';
         const reply = await DMBrain.chatOnce(sys, '（当前大家正在讨论案情，请你说一句符合角色身份的话）', 150);
         if(reply && this.active && S.phase===ph){
           const txt = String(reply).trim().replace(/^["“]+|["”]+$/g, '').slice(0, 200);
@@ -5962,6 +5999,28 @@ const BotBrain = {
       }
     };
     this._chatTimer = setTimeout(loop, 40000 + Math.random()*30000);
+  },
+  /* 机器人用大模型推理后投票 */
+  async botVote(b, round){
+    if(!S) return;
+    const ph = S.phase;
+    const q = round === 1
+      ? '根据目前已经公开的回忆和线索，你最怀疑谁背叛了全家、杀了所有人？只回答一个角色名，不要解释。'
+      : '根据你已知的一切，你认为谁是最该死的人？只回答一个角色名，不要解释。';
+    let target = null;
+    try{
+      const reply = await DMBrain.chatOnce(this.botContext(b.role, ph) + ' 规则：像真人玩家一样思考，只输出一个角色名。', q, 40);
+      const hit = Object.keys(R).find(k=>reply && reply.includes(R[k].name));
+      if(hit) target = hit;
+    }catch(e){}
+    if(!target){
+      const roleIds = Object.keys(R);
+      target = roleIds[Math.floor(Math.random()*roleIds.length)];
+    }
+    if(round===1){ S.votes1[b.pid] = {target, vid:uid()}; }
+    else { S.votes2[b.pid] = {target, vid:uid()}; }
+    scheduleSnapshot();
+    renderVote();
   }
 };
 
@@ -6172,14 +6231,15 @@ function renderVote(){
     }
     html += '<div class="small dim">已投票：'+Object.keys(S.votes2).length+' / '+playerList().length+'</div></div>';
   }else if(cur >= rank('act4_curse')){
-    html += '<div class="card"><h3 style="color:var(--gold);margin-bottom:6px">🗳 投票揭晓</h3>';
-    html += '<div class="small dim" style="margin:6px 0">第一次投票（猜疑夜 · 凶手）</div>' + tallyHtml(S.votes1);
-    html += '<div class="small dim" style="margin:14px 0 6px">第二次投票（背叛夜 · 最该死的人）</div>' + tallyHtml(S.votes2);
-    const top1 = topTarget(S.votes1);
-    if(top1 === 'ying'){
-      html += '<div class="task" style="border-left-color:var(--gold);background:#241c11;margin-top:14px"><b>「你们所有人，投的都是方樱。」</b><br>你以为只有这一次投的都是你吗？我们把之前的票都拿出来——方樱，方樱，方樱，方樱，方樱。所有的投票都是方樱。他们从一开始，投的就是你。</div>';
-    }
-    html += '</div>';
+    // 按组织者手册：DM 已将两次投票的纸条换成方樱
+    html += '<div class="card"><h3 style="color:var(--gold);margin-bottom:6px">🗳 投票揭晓</h3>'
+      + '<div class="small dim" style="margin:6px 0">第一次投票（猜疑夜 · 凶手）——翻开纸条</div>'
+      + '<div class="task" style="border-left-color:var(--gold);background:#241c11"><p style="text-indent:0;margin:4px 0">方樱，方樱，方樱，方樱，方樱。</p></div>'
+      + '<div class="small dim" style="margin:14px 0 6px">第二次投票（背叛夜 · 最该死的人）——翻开纸条</div>'
+      + '<div class="task" style="border-left-color:var(--gold);background:#241c11"><p style="text-indent:0;margin:4px 0">方樱，方樱，方樱，方樱，方樱。</p></div>'
+      + '<div class="task" style="border-left-color:var(--blood);background:#201710;margin-top:14px"><b>「你们所有人，投的都是方樱。」</b><br>你以为只有这一次投的都是你吗？我们把之前的票都拿出来——方樱，方樱，方樱，方樱，方樱。<br><br>所有的投票都是方樱。他们从一开始，第一轮投的就是你，方樱。</div>'
+      + '<div class="small dim" style="margin-top:10px">（主持人把所有的纸条往天上一扔：所有的投票都是方樱！）</div>'
+      + '</div>';
   }else{
     html += '<div class="card"><div class="vote-sealed">🗳 投票已封印。<br>第一次投票结果将在「蠢货，杀的就是你」环节揭晓。</div></div>';
   }
@@ -6330,7 +6390,19 @@ function maybeAutoAdvanceIntro(){
     scheduleSnapshot();
     hostSay('🌊 六只纸船都已放入水中。你们的灵魂，正顺着邪神河流，回到前世。', {tts:true});
     AudioSys.sfx('chime');
-    setTimeout(()=>{ if(S && S.phase==='intro') requestPhase('act1_read'); }, 6000);
+    if(!S.flags['ritualShown']){
+      S.flags['ritualShown'] = 1;
+      scheduleSnapshot();
+      // 恐搜仪式（手册标注为门店可选的仪式环节，线上以沉浸画面+音效呈现）
+      showCg({img:'POSTER', dark:true, lines:[
+        '老四：都跟上我。前面那间屋子，是你们的「恐搜」仪式。',
+        '黑暗中，房间中央平躺着一个人，全身盖着白布……',
+        '白布下的人暴起，嘶哑地追逐着你们：「我要和你们融为一体——别丢下我！」'
+      ]});
+      AudioSys.sfx('heart');
+      setTimeout(()=>{ AudioSys.sfx('fire'); }, 4000);
+    }
+    setTimeout(()=>{ if(S && S.phase==='intro') requestPhase('act1_read'); }, 10000);
   }
 }
 
@@ -6455,6 +6527,18 @@ function renderSpy(){
   const turnIdx = descs.length % Math.max(1, order.length);
   const currentSpeaker = order[turnIdx];
   const isMyTurn = currentSpeaker && currentSpeaker.pid === me.pid;
+  // 角色被动（勘误1）：轮到对应角色时主持人打断/提示
+  if(currentSpeaker && currentSpeaker.role && !spy.done){
+    if(!spy._passiveShown) spy._passiveShown = {};
+    const pkey = currentSpeaker.role + '_' + cfg.round;
+    if(!spy._passiveShown[pkey]){
+      const line = spyPassiveCue(currentSpeaker.role, cfg.round, currentSpeaker.name);
+      if(line){
+        spy._passiveShown[pkey] = 1;
+        hostSay(line, {tts:false});
+      }
+    }
+  }
   if(isMyTurn && spy.stage==='desc'){
     nudgeOnce('spyYourTurn_' + cfg.round + '_' + spy.cycle, '🃏 卧底游戏：轮到你了，用一句话描述你的词条（不能直接说词条内容），输入后点「描述」。');
   }
@@ -6545,6 +6629,15 @@ function renderSpy(){
       BotBrain.spyTick();
     }
   });
+}
+
+function spyPassiveCue(roleId, round, name){
+  if(round === 1 && roleId === 'ming') return '⚠️ 哥哥的被动触发：哥哥说到一半突然暂停，无法动弹。' + name + '，你可以稍微休息一下。';
+  if(round === 2 && roleId === 'ping') return '⚠️ 父亲的被动触发：满口通红，无法发出声音。' + name + '，用你的肢体语言描述，但不能说话哦！';
+  if(round === 3 && roleId === 'cui') return '⚠️ 妈妈的被动触发：体力很差，说话音量变小。' + name + '，请你压低声音说话。';
+  if(roleId === 'man' && Math.random() < 0.4) return '⚠️ 姐姐的被动触发：' + name + '，你需要背对着大家哦！';
+  if(roleId === 'ying' && Math.random() < 0.4) return '⚠️ 妹妹的被动触发：' + name + '，大家叫你做什么，你就要答应什么。';
+  return null;
 }
 
 function publishSpy(obj){
@@ -6728,11 +6821,17 @@ function showEnding(){
     const p = S.players[pid];
     return '<div class="recap-role"><div><div class="rr-name">'+esc(p?p.name:'?')+'（'+(p&&p.role?R[p.role].name:'')+'）</div><div class="rr-text">「'+esc(S.epitaphs[pid])+'」</div></div></div>';
   }).join('');
+  const voteTruth = '<div class="recap-section"><h3>投票真相公开</h3>'
+    + '<div class="task" style="border-left-color:var(--gold);background:#241c11"><p style="text-indent:0;margin:4px 0">为还原原版演出效果，AI 主持（DM）在两次投票中按组织者手册将纸条替换成了「方樱」。以下是你们真实的匿名投票：</p></div>'
+    + '<div class="small dim" style="margin:6px 0">第一次投票（凶手）真实结果</div>' + tallyHtml(S.votes1)
+    + '<div class="small dim" style="margin:14px 0 6px">第二次投票（最该死的人）真实结果</div>' + tallyHtml(S.votes2)
+    + '</div>';
   root.innerHTML = '<div class="ending-overlay" style="background:radial-gradient(900px 500px at 50% 0%, #241810 0%, #050403 70%)"><div class="ending-card">'
     + '<div class="e-title">'+esc(e.title)+'</div>'
     + '<div class="e-sub">'+esc(e.sub)+' · 《野狗不需要墓碑》</div>'
     + '<div class="e-body">'+e.body.split('\n').map(p=>'<p>'+esc(p)+'</p>').join('')+'</div>'
     + '<div style="text-align:center;color:var(--gold2);font-style:italic;margin:18px 0">'+esc(e.epilogue)+'</div>'
+    + voteTruth
     + '<div class="recap-section"><h3>墓志铭</h3>'+epiHtml+'</div>'
     + '<div class="modal-actions"><button class="btn primary" id="end-rec">进入完整复盘</button>'
     + '<button class="btn ghost" id="end-home">回到首页</button></div>'
@@ -6760,7 +6859,9 @@ function showEnding(){
 function renderRecap(){
   const pane = $('pane-script');
   const p = myPlayer();
-  const votesHtml = tallyHtml(S.votes1) + '<div style="height:8px"></div>' + tallyHtml(S.votes2);
+  const votesHtml = '<div class="task" style="border-left-color:var(--gold);background:#241c11"><p style="text-indent:0;margin:4px 0"><b>关于两轮投票的说明：</b></p><p style="text-indent:0;margin:4px 0">为还原原版组织的演出效果，AI 主持（DM）在两次投票中，按组织者手册将纸条替换成了「方樱」。你们在游戏里看到的「所有投票都是方樱」，是 DM 为了剧情顺下去而“擅自改票”的表演。</p><p style="text-indent:0;margin:4px 0">以下是你们<b>真实的匿名投票</b>记录：</p></div>'
+    + '<div class="small dim" style="margin:6px 0">第一次投票（猜疑夜 · 凶手）真实结果</div>' + tallyHtml(S.votes1)
+    + '<div class="small dim" style="margin:14px 0 6px">第二次投票（背叛夜 · 最该死的人）真实结果</div>' + tallyHtml(S.votes2);
   let roles = '';
   for(const k in R){
     roles += '<div class="recap-role"><img src="'+imgSrc(R[k].img)+'" alt=""><div><div class="rr-name">'+R[k].name+'（'+R[k].title+'）</div><div class="rr-text">'+WD.RECAP.roles[k]+'</div></div></div>';
