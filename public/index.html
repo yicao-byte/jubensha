@@ -5280,7 +5280,11 @@ function addChatLocal(d){
     renderChat(); renderLobbyChat();
     Steering.check(d);
     DMBrain.onChat(d);
-    BotBrain.onHumanChat(d);
+    if(d.kind === 'ai'){
+      BotBrain.onHostMessage(d);
+    }else{
+      BotBrain.onHumanChat(d);
+    }
   }
 }
 
@@ -5807,6 +5811,24 @@ const BotBrain = {
       });
       return;
     }
+    // 第四幕·病情推理：机器人像真人一样猜测各自的病
+    if(ph === 'act4_truth'){
+      const guess = {
+        bageng:'我……我总觉得我的眼睛越来越差，会不会我的病在眼睛？',
+        ping:'我最近总咳嗽，胸口发闷，我的病……是不是在肺？',
+        cui:'我经常头晕、贫血，没什么力气，可能我病在血上。',
+        ming:'我有时候会突然晕倒，心脏一抽一抽的……',
+        man:'我的皮肤，全是烧过的疤，我的病在皮。',
+        ying:'我？我好像没什么病……我身体一直很好。'
+      };
+      bots.forEach((b,i)=>{
+        this.schedule(()=>{
+          if(!S || S.phase!==ph) return;
+          addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:guess[b.role] || '……', ts:Date.now(), mid:uid()});
+        }, 5000 + i*3500);
+      });
+      return;
+    }
     // 纸船愿望：机器人按角色读出自己的愿望
     if(ph === 'act4_wishes' || ph === 'act4_wishes2'){
       const isFront = ph === 'act4_wishes';
@@ -5962,7 +5984,9 @@ const BotBrain = {
     this.lastBot = target.pid;
     this.lastReply = now;
     try{
+      const mem = S.chat.filter(m=>m.kind==='pub' && m.pid===target.pid).slice(-2).map(m=>m.text).join('；');
       const sys = this.botContext(target.role, ph)
+        + (mem ? ' 你之前说过：' + mem : '')
         + ' 规则：像真人玩家一样，结合线索推理并回应。用第一人称中文，1~3句话，可以怀疑、提问、开玩笑，不要剧透未解锁真相，不要提及“机器人/AI”。';
       const reply = await DMBrain.chatOnce(sys, '玩家【' + d.name + '】对大家说：' + d.text + '\n请以你的角色身份回应这句话。', 220);
       if(reply && this.active){
@@ -5986,7 +6010,9 @@ const BotBrain = {
       if(!this.active || !S || S.phase!==ph) return;
       const b = bots[Math.floor(Math.random()*bots.length)];
       try{
+        const mem = S.chat.filter(m=>m.kind==='pub' && m.pid===b.pid).slice(-2).map(m=>m.text).join('；');
         const sys = this.botContext(b.role, ph)
+          + (mem ? ' 你之前说过：' + mem : '')
           + ' 规则：像真人玩家一样，围绕当前案件做一句推理或猜测，用第一人称中文说1~2句，不剧透未解锁真相。';
         const reply = await DMBrain.chatOnce(sys, '（当前大家正在讨论案情，请你说一句符合角色身份的话）', 150);
         if(reply && this.active && S.phase===ph){
@@ -6021,6 +6047,34 @@ const BotBrain = {
     else { S.votes2[b.pid] = {target, vid:uid()}; }
     scheduleSnapshot();
     renderVote();
+  },
+  /* 机器人回答 AI 主持人的提问（模拟真人回应控场） */
+  onHostMessage(d){
+    if(!this.active || !S) return;
+    const now = Date.now();
+    if(now - this.lastReply < 10000) return;
+    const text = d.text || '';
+    if(!/[？?]/.test(text)) return;
+    if(!/(你们|大家|觉得|认为|怀疑|谁|什么|为什么|是不是)/.test(text)) return;
+    const bots = this.bots();
+    if(!bots.length) return;
+    const ph = S.phase;
+    if(!CHAT_PHASES.has(ph) || READING_PHASES.has(ph)) return;
+    this.lastReply = now;
+    const b = bots[Math.floor(Math.random()*bots.length)];
+    setTimeout(async ()=>{
+      try{
+        const mem = S.chat.filter(m=>m.kind==='pub' && m.pid===b.pid).slice(-2).map(m=>m.text).join('；');
+        const sys = this.botContext(b.role, ph)
+          + (mem ? ' 你之前说过：' + mem : '')
+          + ' 规则：像真人玩家一样回答主持人的提问，用第一人称中文1~2句，不剧透未解锁真相。';
+        const reply = await DMBrain.chatOnce(sys, 'AI主持人问：' + text, 180);
+        if(reply && this.active && S.phase===ph){
+          const txt = String(reply).trim().replace(/^["“]+|["”]+$/g, '').slice(0, 250);
+          if(txt) addChatLocal({t:'chat', kind:'pub', pid:b.pid, name:b.name, role:b.role, text:txt, ts:Date.now(), mid:uid()});
+        }
+      }catch(e){}
+    }, 4000 + Math.random()*3000);
   }
 };
 
