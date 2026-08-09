@@ -6779,7 +6779,8 @@ function checkSpyVotes(){
       spy.stage = 'desc';
       spy.descs = [];
       spy.votes = {};
-      spy.result = '第 ' + doneCycle + ' 轮未能找出卧底，进入第二轮描述。';
+      spy.result = null;
+      spy._schedKey = null;
       hostSay('卧底/白板未被找出，进入第二轮描述！', {tts:false});
     }
   }
