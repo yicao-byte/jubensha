@@ -4616,15 +4616,21 @@ const AudioSys = {
 
 /* ---------- TTS 旁白 ---------- */
 const TTS = {
-  on: true, voice: null,
+  on: false, voice: null, rate: 0.92, voiceName: '',
   init(){
     if(!('speechSynthesis' in window)){ this.on = false; return; }
+    const prefs = DmCfg.data;
+    this.rate = prefs.ttsRate || 0.92;
+    this.voiceName = prefs.ttsVoice || '';
+    if(prefs.ttsOn) this.on = true;
     const load = ()=>{
       const vs = speechSynthesis.getVoices();
       const zh = vs.filter(v=>v.lang && v.lang.toLowerCase().startsWith('zh'));
       // 优先自然音色（微软神经语音等），避免生硬的系统音
       const pref = ['Xiaoxiao','晓晓','Yunxi','云希','Yunyang','云扬','Xiaoyi','晓伊','Huihui','慧慧','Kangkang','康康','Tingting','婷婷'];
-      this.voice = zh.find(v=>pref.some(p=>v.name.includes(p))) || zh.find(v=>v.localService) || zh[0] || null;
+      this.voice = (this.voiceName && zh.find(v=>v.name===this.voiceName))
+        || zh.find(v=>pref.some(p=>v.name.includes(p)))
+        || zh.find(v=>v.localService) || zh[0] || null;
     };
     load();
     speechSynthesis.onvoiceschanged = load;
@@ -4636,7 +4642,7 @@ const TTS = {
       const u = new SpeechSynthesisUtterance(text.slice(0, 260));
       u.lang = 'zh-CN';
       if(this.voice) u.voice = this.voice;
-      u.rate = 0.92; u.pitch = 1.0;
+      u.rate = this.rate || 0.92; u.pitch = 1.0;
       u.volume = 1.0;
       speechSynthesis.speak(u);
     }catch(e){}
@@ -4645,8 +4651,16 @@ const TTS = {
   toggle(){
     this.on = !this.on;
     if(!this.on) this.stop();
-    $('btn-tts').textContent = this.on ? '🔊 旁白' : '🔇 旁白';
+    DmCfg.data.ttsOn = this.on;
+    DmCfg.save();
+    const b = $('btn-tts');
+    if(b) b.textContent = this.on ? '🔊 旁白' : '🔇 旁白';
     toast(this.on ? 'AI旁白语音已开启' : 'AI旁白语音已关闭');
+  },
+  listVoices(){
+    try{
+      return speechSynthesis.getVoices().filter(v=>v.lang && v.lang.toLowerCase().startsWith('zh'));
+    }catch(e){ return []; }
   }
 };
 
@@ -5899,7 +5913,7 @@ const BotBrain = {
     if(!this.active || !S) return;
     const spy = S.spy;
     if(!spy || spy.done) return;
-    const key = spy.stage + ':' + spy.cycle;
+    const key = spy.stage + ':' + spy.cycle + ':' + (spy.descs || []).length;
     if(spy._schedKey === key) return;
     spy._schedKey = key;
     const bots = this.bots();
@@ -5909,25 +5923,28 @@ const BotBrain = {
       const cur = ps[idx];
       if(cur && cur.bot){
         this.schedule(()=>{
-          if(!S || !S.spy || S.spy.stage!=='desc' || S.spy._schedKey!==key) return;
+          if(!S || !S.spy || S.spy.stage!=='desc') return;
+          if(S.spy.descs.length !== spy.descs.length) return;
           const text = BOT_SPY_LINES[Math.floor(Math.random()*BOT_SPY_LINES.length)];
           S.spy.descs.push({pid:cur.pid, name:cur.name, text});
           publishSpyState();
           renderSpy();
           checkSpyDescDone();
+          this.spyTick();
         }, 2500 + Math.random()*2500);
       }
     }else if(spy.stage === 'vote'){
       bots.forEach(b=>{
         if(!spy.votes[b.pid]){
           this.schedule(()=>{
-            if(!S || !S.spy || S.spy.stage!=='vote' || S.spy._schedKey!==key) return;
+            if(!S || !S.spy || S.spy.stage!=='vote') return;
             const ps = playerList();
             const target = ps[Math.floor(Math.random()*ps.length)].pid;
             S.spy.votes[b.pid] = target;
             publishSpyState();
             renderSpy();
             checkSpyVotes();
+            this.spyTick();
           }, 2500 + Math.random()*2500);
         }
       });
@@ -6729,8 +6746,9 @@ function checkSpyDescDone(){
     hostSay('描述完毕，开始投票！找出卧底/白板。', {tts:false});
     publishSpyState();
     renderSpy();
-    BotBrain.spyTick();
   }
+  // 每描述完一人就安排下一位（若下一位是机器人则自动行动）
+  BotBrain.spyTick();
 }
 
 function checkSpyVotes(){
@@ -7112,6 +7130,8 @@ function bindGameHeader(){
   $('btn-settings').addEventListener('click', ()=>{
     openModal('设置', ''
       + '<div class="set-row"><label>旁白语音（TTS）</label><button class="btn small" id="set-tts">'+(TTS.on?'开启':'关闭')+'</button></div>'
+      + '<div class="set-row"><label>旁白音色</label><select id="set-voice-pick" style="flex:1;min-width:140px"></select><button class="btn small" id="set-voice-test">试听</button></div>'
+      + '<div class="set-row"><label>语速</label><input type="range" id="set-rate" min="0.6" max="1.3" step="0.05" value="'+(TTS.rate||0.92)+'" style="flex:1"><span class="small dim" id="set-rate-val"></span></div>'
       + '<div class="set-row"><label>语音发言</label><span class="small dim">按住标题栏「🎙 按住说话」或长按空格，松开即静音，全员可听</span></div>'
       + '<div class="set-row"><label>氛围BGM</label><button class="btn small" id="set-bgm">'+(AudioSys.current?'播放中':'已停止')+'</button></div>'
       + '<div class="set-row"><label>AI提示</label><button class="btn small" id="set-hint">要一个提示</button></div>'
@@ -7132,6 +7152,34 @@ function bindGameHeader(){
       + '<div class="small dim" style="margin-top:8px">说明：官方接口不支持浏览器直连（CORS），请在「代理地址」填写随附 proxy 服务端的地址；密钥只存在本机浏览器里，不会写入网页或房间数据。</div>'
       , [{label:'关闭', cls:'primary'}]);
     $('set-tts').addEventListener('click', ()=>{ TTS.toggle(); $('set-tts').textContent = TTS.on?'开启':'关闭'; });
+    const vp = $('set-voice-pick');
+    const refreshVoices = ()=>{
+      const vs = TTS.listVoices();
+      vp.innerHTML = vs.map(v=>'<option value="'+esc(v.name)+'"'+(TTS.voiceName===v.name||(TTS.voice&&TTS.voice.name===v.name)?' selected':'')+'>'+esc(v.name)+'</option>').join('');
+    };
+    refreshVoices();
+    vp.addEventListener('focus', refreshVoices);
+    vp.addEventListener('change', ()=>{
+      TTS.voiceName = vp.value;
+      const vs = TTS.listVoices();
+      TTS.voice = vs.find(v=>v.name===vp.value) || null;
+      DmCfg.data.ttsVoice = vp.value;
+      DmCfg.save();
+    });
+    const rv = $('set-rate');
+    const rvv = $('set-rate-val');
+    rvv.textContent = (TTS.rate||0.92).toFixed(2);
+    rv.addEventListener('input', ()=>{
+      TTS.rate = parseFloat(rv.value);
+      DmCfg.data.ttsRate = TTS.rate;
+      DmCfg.save();
+      rvv.textContent = TTS.rate.toFixed(2);
+    });
+    $('set-voice-test').addEventListener('click', ()=>{
+      TTS.on = true;
+      TTS.speak('各位玩家好，欢迎回到749局的档案。');
+      toast('试听中……（若无声请确认系统有中文语音）');
+    });
     $('set-bgm').addEventListener('click', ()=>{
       if(AudioSys.current){ AudioSys.stopBgm(); toast('BGM已停止'); }
       else { AudioSys.playBgm('suspect'); toast('BGM已开启'); }
