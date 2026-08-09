@@ -6559,7 +6559,8 @@ const SPY_ROUNDS = [
 
 function startSpyRound(round){
   if(!S) return;
-  if(S.spy && S.spy.done) return;
+  // 仅阻止“同一轮”重复初始化；结束后的“下一轮”必须允许开启
+  if(S.spy && S.spy.round === round && S.spy.done) return;
   const cfg = SPY_ROUNDS[round-1];
   S.spy = {seq:(S.spy&&S.spy.seq||0)+1, round:round, stage:'desc', descs:[], votes:{}, cycle:1, eliminated:null, result:null, done:false, cfg:cfg};
   scheduleSnapshot();
